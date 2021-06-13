@@ -15,6 +15,7 @@ def resolve_path(x):
 
 matlock_container = 'shub://TomHarrop/seq-utils:matlock_9fe3fdd'
 tidyverse_container = 'shub://TomHarrop/singularity-containers:r_3.5.0'
+samblaster_container = 'shub://TomHarrop/align-utils:samblaster_0.1.24'
 
 #########
 # RULES #
@@ -23,148 +24,116 @@ tidyverse_container = 'shub://TomHarrop/singularity-containers:r_3.5.0'
 rule target:
     input:
     	##sampe output:
-    	'output/mh_hic_matlock/matlock_viral_scaffolds.csv'
+    	'output/mh_hic_matlock/matlock_viral_scaffolds.csv',
+    	'output/hic_genome_aln/interaction_matrix.csv',
+    	'output/hic_genome_aln/interaction_locations.csv'
 
-rule filter_matlock_viral_scaffolds:
+##as per phase genomics reccomendations - https://phasegenomics.github.io/2019/09/19/hic-alignment-and-qc.html
+
+#################
+## look at res ##
+#################
+
+rule hic_genome_interaction_matrix:
 	input:
-		matlock_output = 'output/mh_hic_matlock/matlock_links.out',
-		viral_scaffold_list = 'data/mh_genome/viral_scaffold_ids.txt'
+		bam = 'output/hic_genome_aln/matlock_links.out'
 	output:
-		viral_matlock = 'output/mh_hic_matlock/matlock_viral_scaffolds.csv'
+		interaction_matrix = 'output/hic_genome_aln/interaction_matrix.csv',
+		interaction_locations = 'output/hic_genome_aln/interaction_locations.csv'
+	log:
+		'output/logs/hic_genome_interaction_matrix.log'
 	singularity:
 		tidyverse_container
 	threads:
 		10
-	log:
-		'output/logs/filter_matlock_viral.log'
 	script:
-		'src/filter_matlock_viral.R'
+		'src/hic_genome_interaction_matrix.R'
 
-rule matlock_juicer:
+#################################
+## generate interaction matrix ##
+#################################
+
+rule matlock_juicer_hic:
 	input:
-		bam = 'data/mh_hic_genome/microctonus_hyperodae_harrop.bam'
+		'output/hic_genome_aln/hic_align.bam'
 	output:
-		matlock_juicer = 'output/mh_hic_matlock/matlock_links.out'
+		'output/hic_genome_aln/matlock_links.out'
 	log:
-		'output/logs/matlock_juicer.log'
+		'output/logs/matlock_juicer_hic.log'
 	singularity:
 		matlock_container
 	threads:
 		10
 	shell:
 		'matlock bam2 juicer '
-		'{input.bam} '
-		'{output.matlock_juicer} '
+		'{input} '
+		'{output} '
 		'2> {log}'
 
-########
+################
+## create bam ##
+################
 
-rule view_bam:
+##-F 2316 excludes reads which were unmapped or whose mate was unmapped,
+##as well as supplementary & not primary alignments
+rule samtools_hic_align:
 	input:
-		bam = 'output/viral_scaffolds_aln/sampe/sorted.bam'
+		'output/hic_genome_aln/samblaster.sam'
 	output:
-		'output/viral_scaffolds_aln/sampe/view_bam.out'
-	log:
-		'output/logs/view_bam.log'
+		'output/hic_genome_aln/hic_align.bam'
 	threads:
 		10
+	log:
+		'output/logs/samtools_hic_align.log'
 	shell:
 		'samtools view '
-		' -c -F 260 '
-		'{input.bam} '
+		'-S -h -b -F 2316 '
+		'{input} '
 		'> {output} '
 		'2> {log}'
 
-rule index_bam:
+####################################
+## flag and remove PCR duplicates ##
+####################################
+
+rule samblaster_hic_align:
 	input:
-		sorted_bam = 'output/viral_scaffolds_aln/sampe/sorted.bam'
+		'output/hic_genome_aln/bwa_mem.sam'
 	output:
-		index = 'output/viral_scaffolds_aln/sampe/sorted.bam.bai'
+		temp('output/hic_genome_aln/samblaster.sam')
 	log:
-		'output/logs/index_bam.log'
+		'output/logs/samblaster.log'
+	singularity:
+		samblaster_container
 	shell:
-		'samtools index '
-		'{input.sorted_bam} '
-		'> {output.index} '
+		'samblaster '
+		'-i {input} '
+		'-o {output} '
 		'2> {log}'
 
-rule samtools_sort:
-    input:
-        bam = 'output/mh_hic_aln/mh_hic_aln_sampe.bam'
-    output:
-        sorted_bam = 'output/mh_hic_aln/sorted.bam'
-    log:
-        'output/logs/samtools_sort.log'
-    threads:
-        10
-    shell:
-        'samtools sort -n '
-        '{input.bam} '
-        '-f {output.sorted_bam} '
-        '2> {log}'
+#####################################
+## align hi-c reads to hi-c genome ##
+#####################################
 
-rule sam_to_bam:
 	input:
-		sampe_sam = 'output/mh_hic_aln/mh_hic_aln_sampe.sam'
-	output:
-		bam = 'output/mh_hic_aln/mh_hic_aln_sampe.bam'
-	log:
-		'output/logs/sam_to_bam.log'
-	shell:
-		'samtools view '
-		'-bS '
-		'{input.sampe_sam} '
-		'> {output.bam} '
-		'2> {log}'
-
-##run sampe to determine optimal placement of each read pair (combines reads from both fastq files)
-rule bwa_sampe:
-	input:
-		sai_r1 = 'output/mh_hic_aln/HiC_R1.sai',
-		sai_r2 = 'output/mh_hic_aln/HiC_R2.sai',
+		hic_genome = 'data/mh_hic_genome/Mh_Hi-C_PGA_assembly.fasta',
 		hic_r1 = 'data/hic_reads/microctonus_hyperodae_harrop_S3HiC_R1.fastq.gz',
 		hic_r2 = 'data/hic_reads/microctonus_hyperodae_harrop_S3HiC_R2.fastq.gz'
 	output:
-		temp('output/mh_hic_aln/mh_hic_aln_sampe.sam')
+		temp('output/hic_genome_aln/bwa_mem.sam')
+	log:
+		'output/logs/bwa_mem.log'
 	params:
 		index_dir = 'output/mh_hic_index/mh_hic_genome'
 	threads:
-		10
-	log:
-		'output/logs/bwa_sampe.log'
+		20
 	shell:
-		'bwa sampe '
-		'{params.index_dir} '
-		'{input.sai_r1} '
-		'{input.sai_r2} '
-		'{input.hic_r1} '
-		'{input.hic_r2} '
+		'bin/bwa/bwa mem -5SP -t '
+		'{threads} {params.index_dir} '
+		'{input.hic_r1} {input.hic_r2} '
 		'> {output} '
 		'2> {log}'
 
-##align each fastq file separately
-rule bwa_aln:
-	input:
-		hic_reads = 'data/hic_reads/microctonus_hyperodae_harrop_S3HiC_{direction}.fastq.gz',
-		index = 'output/mh_hic_index/mh_hic_genome.bwt'
-	output:
-		'output/mh_hic_aln/HiC_{direction}.sai'
-	params:
-		index_dir = 'output/mh_hic_index/mh_hic_genome',
-		hic_reads = lambda wildcards, input: resolve_path(input.hic_reads)
-	threads:
-		10
-	log:
-		'output/logs/bwa_aln_{direction}.log'
-	shell:
-		'bwa aln '
-		'{params.index_dir} '
-		'{params.hic_reads} '
-		'-t {threads} '
-		'> {output} '
-		'2> {log}'
-
-##index draft assembly - If your genome is large (>10 Mb), you will need to use the flag -a bwtsw. This will create a file <assembly>.fasta.bwt.
 rule bwa_index:
 	input:
 		genome = 'data/mh_hic_genome/Mh_Hi-C_PGA_assembly.fasta'
