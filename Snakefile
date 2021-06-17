@@ -24,11 +24,9 @@ samblaster_container = 'shub://TomHarrop/align-utils:samblaster_0.1.24'
 rule target:
     input:
     	##sampe output:
-    	'output/mh_hic_matlock/matlock_viral_scaffolds.csv',
-    	'output/hic_genome_aln/interaction_matrix.csv',
-    	'output/hic_genome_aln/interaction_locations.csv'
+    	'output/hic_genome_aln/viral_interactions.csv'
 
-##as per phase genomics reccomendations - https://phasegenomics.github.io/2019/09/19/hic-alignment-and-qc.html
+##as per phase genomics reccommendations - https://phasegenomics.github.io/2019/09/19/hic-alignment-and-qc.html
 
 #################
 ## look at res ##
@@ -36,10 +34,12 @@ rule target:
 
 rule hic_genome_interaction_matrix:
 	input:
-		bam = 'output/hic_genome_aln/matlock_links.out'
+		bam = 'output/hic_genome_aln/matlock_links.out',
+		viral_contigs_file = 'data/Mh_gc_viral_contig_ids.csv'
 	output:
 		interaction_matrix = 'output/hic_genome_aln/interaction_matrix.csv',
-		interaction_locations = 'output/hic_genome_aln/interaction_locations.csv'
+		interaction_locations = 'output/hic_genome_aln/interaction_locations.csv',
+		viral_interactions = 'output/hic_genome_aln/viral_interactions.csv'
 	log:
 		'output/logs/hic_genome_interaction_matrix.log'
 	singularity:
@@ -115,10 +115,12 @@ rule samblaster_hic_align:
 ## align hi-c reads to hi-c genome ##
 #####################################
 
+rule bwa_mem:
 	input:
 		hic_genome = 'data/mh_hic_genome/Mh_Hi-C_PGA_assembly.fasta',
 		hic_r1 = 'data/hic_reads/microctonus_hyperodae_harrop_S3HiC_R1.fastq.gz',
-		hic_r2 = 'data/hic_reads/microctonus_hyperodae_harrop_S3HiC_R2.fastq.gz'
+		hic_r2 = 'data/hic_reads/microctonus_hyperodae_harrop_S3HiC_R2.fastq.gz',
+		index = 'output/mh_hic_index/mh_hic_genome.bwt'
 	output:
 		temp('output/hic_genome_aln/bwa_mem.sam')
 	log:
@@ -136,7 +138,7 @@ rule samblaster_hic_align:
 
 rule bwa_index:
 	input:
-		genome = 'data/mh_hic_genome/Mh_Hi-C_PGA_assembly.fasta'
+		genome = 'data/Mh_hic_genome.fa'
 	output:
 		index = 'output/mh_hic_index/mh_hic_genome.bwt'
 	params:
